@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import Webcam from 'react-webcam'
 
 import {
@@ -10,6 +10,13 @@ import {
 } from 'lucide-react'
 
 import api from '../services/api'
+
+import {
+  cargarModelos,
+  obtenerEmbeddingDesdeDataURL,
+  SinRostroError,
+  NOMBRE_MODELO,
+} from '../services/faceEmbedding'
 
 import FaceResultCard from '../components/FaceResultCard'
 
@@ -37,6 +44,9 @@ function Reconocimiento() {
   const [pasoAnalisis, setPasoAnalisis] =
     useState(1)
 
+  const [modelosListos, setModelosListos] =
+    useState(false)
+
 
   // Pequeña espera para mostrar visualmente
   // las etapas del análisis
@@ -45,6 +55,34 @@ function Reconocimiento() {
       setTimeout(resolve, milisegundos)
     )
   }
+
+
+  // Los modelos de reconocimiento (~6.8 MB) se descargan al
+  // entrar a la pantalla, no al pulsar el botón, para que la
+  // captura sea inmediata.
+  useEffect(() => {
+    let activo = true
+
+    cargarModelos()
+      .then(() => {
+        if (activo) {
+          setModelosListos(true)
+        }
+      })
+      .catch((error) => {
+        console.error(error)
+
+        if (activo) {
+          setMensaje(
+            'No se pudieron cargar los modelos de reconocimiento.'
+          )
+        }
+      })
+
+    return () => {
+      activo = false
+    }
+  }, [])
 
 
   const capturarRostro = async () => {
@@ -68,56 +106,33 @@ function Reconocimiento() {
     try {
       // ETAPA 1
       setEtapaAnalisis(
-        'Detectando rostro...'
+        'Cargando modelos de reconocimiento...'
       )
 
-      await esperar(700)
+      await cargarModelos()
 
 
       // ETAPA 2
       setPasoAnalisis(2)
 
       setEtapaAnalisis(
-        'Analizando características faciales...'
+        'Detectando rostro y analizando características...'
       )
 
-      await esperar(700)
+      await esperar(200)
 
 
       // ETAPA 3
+      // El vector facial se calcula AQUÍ, en el navegador.
+      // La imagen nunca se envía al servidor.
       setPasoAnalisis(3)
 
       setEtapaAnalisis(
         'Generando representación facial...'
       )
 
-      await esperar(700)
-
-
-      // Convertir captura en archivo
-      const respuesta =
-        await fetch(captura)
-
-      const blob =
-        await respuesta.blob()
-
-      const archivo =
-        new File(
-          [blob],
-          'rostro.jpg',
-          {
-            type: 'image/jpeg',
-          }
-        )
-
-
-      const formulario =
-        new FormData()
-
-      formulario.append(
-        'imagen',
-        archivo
-      )
+      const embedding =
+        await obtenerEmbeddingDesdeDataURL(captura)
 
 
       // ETAPA 4
@@ -131,12 +146,9 @@ function Reconocimiento() {
       const respuestaApi =
         await api.post(
           '/api/reconocimiento',
-          formulario,
           {
-            headers: {
-              'Content-Type':
-                'multipart/form-data',
-            },
+            embedding,
+            modelo: NOMBRE_MODELO,
           }
         )
 
@@ -190,12 +202,20 @@ function Reconocimiento() {
 
       await esperar(600)
 
-    } catch (error) {
+    } catch (error: any) {
       console.error(error)
 
-      setMensaje(
-        'No se pudo procesar el rostro.'
-      )
+      if (error instanceof SinRostroError) {
+        setMensaje(
+          'No se detectó ningún rostro. Acércate a la cámara, ' +
+          'mira de frente y asegúrate de tener buena iluminación.'
+        )
+      } else {
+        setMensaje(
+          error?.response?.data?.detail ||
+          'No se pudo procesar el rostro.'
+        )
+      }
 
       setEtapaAnalisis('')
 
@@ -453,12 +473,14 @@ function Reconocimiento() {
           <button
             className="recognition-capture"
             onClick={capturarRostro}
-            disabled={procesando}
+            disabled={procesando || !modelosListos}
           >
 
             {procesando
               ? 'Analizando...'
-              : 'Capturar y reconocer rostro'}
+              : !modelosListos
+                ? 'Preparando el motor de reconocimiento...'
+                : 'Capturar y reconocer rostro'}
 
           </button>
 
@@ -552,9 +574,11 @@ function Reconocimiento() {
                 </strong>
 
                 <span>
-                  El rostro capturado fue enviado al
-                  motor de reconocimiento para generar
-                  su embedding y realizar la comparación.
+                  El rostro se analizó en este mismo
+                  dispositivo para generar su embedding.
+                  La imagen nunca salió de tu navegador:
+                  al servidor solo viajó el vector numérico
+                  para realizar la comparación.
                 </span>
 
               </div>

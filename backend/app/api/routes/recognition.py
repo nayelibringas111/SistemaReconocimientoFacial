@@ -1,7 +1,6 @@
-from fastapi import APIRouter, UploadFile, File, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy.orm import Session
 
-import cv2
 import numpy as np
 
 from app.database.connection import get_db
@@ -12,7 +11,8 @@ from app.models.persona_model import Persona
 from app.models.recognition_model import RecognitionLog
 from app.models.usuario_model import Usuario
 
-from app.services.embedding_service import EmbeddingService
+from app.schemas.face_embedding_schema import EmbeddingRequest
+
 from app.services.face_embedding_service import FaceEmbeddingService
 from app.services.similarity_service import SimilarityService
 from app.services.probability_service import ProbabilityService
@@ -23,74 +23,32 @@ router = APIRouter(
     tags=["Reconocimiento"]
 )
 
-embedding_service = EmbeddingService()
 face_embedding_service = FaceEmbeddingService()
 probability_service = ProbabilityService()
 
 
 @router.post("")
-async def reconocer_rostro(
-    imagen: UploadFile = File(...),
+def reconocer_rostro(
+    datos_entrada: EmbeddingRequest,
     db: Session = Depends(get_db),
     usuario: Usuario = Depends(obtener_usuario_actual)
 ):
 
     # =========================================================
-    # 1. LEER IMAGEN
+    # 1. RECIBIR EL VECTOR FACIAL
+    # =========================================================
+    # El rostro se detecta y se convierte en vector en el
+    # navegador (face-api.js). Aquí solo llega la lista de
+    # números, ya validada por EmbeddingRequest.
     # =========================================================
 
-    contenido = await imagen.read()
-
-    if not contenido:
-        raise HTTPException(
-            status_code=400,
-            detail="La imagen está vacía."
-        )
-
-    # =========================================================
-    # 2. CONVERTIR IMAGEN
-    # =========================================================
-
-    datos_imagen = np.frombuffer(
-        contenido,
-        dtype=np.uint8
+    embedding = np.array(
+        datos_entrada.embedding,
+        dtype=np.float32
     )
 
-    imagen_cv = cv2.imdecode(
-        datos_imagen,
-        cv2.IMREAD_COLOR
-    )
-
-    if imagen_cv is None:
-        raise HTTPException(
-            status_code=400,
-            detail="No se pudo procesar la imagen."
-        )
-
     # =========================================================
-    # 3. OBTENER EMBEDDING FACIAL
-    # =========================================================
-
-    embedding = (
-        embedding_service.obtener_embedding(
-            imagen_cv
-        )
-    )
-
-    if embedding is None:
-
-        return {
-            "success": False,
-            "mensaje": (
-                "No se detectó ningún rostro."
-            ),
-            "rostro_detectado": False,
-            "coincide": False,
-            "probabilidad_calibrada": None
-        }
-
-    # =========================================================
-    # 4. BUSCAR MEJOR COINCIDENCIA
+    # 2. BUSCAR MEJOR COINCIDENCIA
     # =========================================================
 
     mejor_coincidencia = (
@@ -115,7 +73,7 @@ async def reconocer_rostro(
         }
 
     # =========================================================
-    # 5. SIMILITUD Y UMBRAL
+    # 3. SIMILITUD Y UMBRAL
     # =========================================================
 
     similitud = float(
@@ -134,7 +92,7 @@ async def reconocer_rostro(
     )
 
     # =========================================================
-    # 6. PROBABILIDAD CALIBRADA
+    # 4. PROBABILIDAD CALIBRADA
     # =========================================================
 
     try:
@@ -152,7 +110,7 @@ async def reconocer_rostro(
         probabilidad_calibrada = None
 
     # =========================================================
-    # 7. OBTENER PERSONA
+    # 5. OBTENER PERSONA
     # =========================================================
 
     persona_id = None
@@ -179,13 +137,17 @@ async def reconocer_rostro(
             )
 
     # =========================================================
-    # 8. DISTANCIA
+    # 6. DISTANCIA
     # =========================================================
+    # Distancia euclidiana real entre los dos vectores faciales
+    # (la métrica con la que face-api.js está calibrado).
 
-    distancia = 1 - similitud
+    distancia = float(
+        mejor_coincidencia["distancia"]
+    )
 
     # =========================================================
-    # 9. GUARDAR HISTORIAL
+    # 7. GUARDAR HISTORIAL
     # =========================================================
 
     registro_historial = RecognitionLog(
@@ -210,7 +172,7 @@ async def reconocer_rostro(
     )
 
     # =========================================================
-    # 10. RESPUESTA
+    # 8. RESPUESTA
     # =========================================================
 
     return {

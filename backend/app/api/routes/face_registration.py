@@ -1,14 +1,11 @@
 from fastapi import (
     APIRouter,
-    UploadFile,
-    File,
     HTTPException,
     Depends
 )
 
 from sqlalchemy.orm import Session
 
-import cv2
 import numpy as np
 
 from app.database.connection import get_db
@@ -18,7 +15,8 @@ from app.models.face_embedding_model import FaceEmbedding
 from app.models.persona_model import Persona
 from app.models.usuario_model import Usuario
 
-from app.services.embedding_service import EmbeddingService
+from app.schemas.face_embedding_schema import EmbeddingRequest
+
 from app.services.face_embedding_service import FaceEmbeddingService
 
 
@@ -28,16 +26,15 @@ router = APIRouter(
 )
 
 
-embedding_service = EmbeddingService()
 face_embedding_service = FaceEmbeddingService()
 
 MAX_EMBEDDINGS_POR_PERSONA = 5
 
 
 @router.post("/{persona_id}/rostro")
-async def registrar_rostro(
+def registrar_rostro(
     persona_id: int,
-    imagen: UploadFile = File(...),
+    datos_entrada: EmbeddingRequest,
     db: Session = Depends(get_db),
     usuario: Usuario = Depends(obtener_usuario_actual)
 ):
@@ -74,47 +71,19 @@ async def registrar_rostro(
             )
         )
 
-    # Leer imagen
-    contenido = await imagen.read()
-
-    if not contenido:
-        raise HTTPException(
-            status_code=400,
-            detail="La imagen está vacía."
-        )
-
-    datos_imagen = np.frombuffer(
-        contenido,
-        dtype=np.uint8
+    # El vector facial llega ya calculado desde el navegador
+    # (face-api.js). EmbeddingRequest valida la dimensión.
+    embedding = np.array(
+        datos_entrada.embedding,
+        dtype=np.float32
     )
-
-    imagen_cv = cv2.imdecode(
-        datos_imagen,
-        cv2.IMREAD_COLOR
-    )
-
-    if imagen_cv is None:
-        raise HTTPException(
-            status_code=400,
-            detail="No se pudo procesar la imagen."
-        )
-
-    # Generar embedding
-    embedding = embedding_service.obtener_embedding(
-        imagen_cv
-    )
-
-    if embedding is None:
-        raise HTTPException(
-            status_code=400,
-            detail="No se detectó ningún rostro."
-        )
 
     # Guardar representación facial
     registro = face_embedding_service.guardar_embedding(
         db=db,
         persona_id=persona_id,
-        embedding=embedding
+        embedding=embedding,
+        modelo=datos_entrada.modelo
     )
 
     total_nuevo = total_actual + 1

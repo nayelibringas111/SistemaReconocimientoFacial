@@ -1,11 +1,30 @@
+# ============================================================
+# Backend ligero: el vector facial se calcula en el navegador
+# (face-api.js), asi que aqui NO hacen falta insightface,
+# onnxruntime ni OpenCV.
+# ============================================================
+
+# --- Nucleo web ---
 fastapi
-uvicorn
+uvicorn[standard]
 pydantic
+pydantic-settings
 python-dotenv
-google-cloud-vision
-requests
-numpy
+email-validator          # EmailStr en persona_schema.py y auth.py
+
+# --- Base de datos ---
 sqlalchemy
 psycopg[binary]
-pydantic-settings
-email-validator>=2.0.0
+
+# --- Autenticacion ---
+python-jose[cryptography]  # core/security.py -> JWT
+passlib[bcrypt]            # usuarios.py, create_admin.py, create_operador.py
+bcrypt<4.1                 # auth.py (4.1+ rompe passlib)
+
+# --- Calculo y modelo de probabilidad ---
+numpy                      # similitud coseno sobre los vectores
+scikit-learn               # probability_service.py, ml_models.py
+
+# --- Otros ---
+google-cloud-vision        # face_service.py (deteccion, opcional)
+requests

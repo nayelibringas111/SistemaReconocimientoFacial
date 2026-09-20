@@ -14,6 +14,13 @@ import {
 
 import api from '../services/api'
 
+import {
+  cargarModelos,
+  obtenerEmbedding,
+  SinRostroError,
+  NOMBRE_MODELO,
+} from '../services/faceEmbedding'
+
 const MAX_REPRESENTACIONES = 5
 
 interface Persona {
@@ -41,6 +48,7 @@ function RegistroFacial() {
   const [imagen, setImagen] = useState<string | null>(null)
   const [mensaje, setMensaje] = useState('')
   const [procesando, setProcesando] = useState(false)
+  const [modelosListos, setModelosListos] = useState(false)
 
   // Cargar personas existentes
   const cargarPersonas = async () => {
@@ -58,6 +66,32 @@ function RegistroFacial() {
 
   useEffect(() => {
     cargarPersonas()
+  }, [])
+
+  // Los modelos de reconocimiento (~6.8 MB) se descargan al entrar
+  // a la pantalla para que la captura sea inmediata.
+  useEffect(() => {
+    let activo = true
+
+    cargarModelos()
+      .then(() => {
+        if (activo) {
+          setModelosListos(true)
+        }
+      })
+      .catch((error) => {
+        console.error(error)
+
+        if (activo) {
+          setMensaje(
+            'No se pudieron cargar los modelos de reconocimiento.'
+          )
+        }
+      })
+
+    return () => {
+      activo = false
+    }
   }, [])
 
   // Consultar representaciones de una persona
@@ -227,38 +261,20 @@ function RegistroFacial() {
 
       setImagen(captura)
 
-      const respuesta = await fetch(
-        captura
-      )
-
-      const blob =
-        await respuesta.blob()
-
-      const archivo = new File(
-        [blob],
-        'rostro.jpg',
-        {
-          type: 'image/jpeg',
-        }
-      )
-
-      const formulario =
-        new FormData()
-
-      formulario.append(
-        'imagen',
-        archivo
-      )
+      /*
+       * El vector facial se calcula AQUÍ, en el navegador.
+       * Al backend solo se le envían los 128 números;
+       * la foto nunca sale de este dispositivo.
+       */
+      const embedding =
+        await obtenerEmbedding(canvas)
 
       const resultado =
         await api.post(
           `/api/personas/${personaId}/rostro`,
-          formulario,
           {
-            headers: {
-              'Content-Type':
-                'multipart/form-data',
-            },
+            embedding,
+            modelo: NOMBRE_MODELO,
           }
         )
 
@@ -273,13 +289,20 @@ function RegistroFacial() {
     } catch (error: any) {
       console.error(error)
 
-      const detalle =
-        error?.response?.data?.detail
+      if (error instanceof SinRostroError) {
+        setMensaje(
+          'No se detectó ningún rostro. Acércate a la cámara, ' +
+          'mira de frente y asegúrate de tener buena iluminación.'
+        )
+      } else {
+        const detalle =
+          error?.response?.data?.detail
 
-      setMensaje(
-        detalle ||
-        'No se pudo registrar el rostro.'
-      )
+        setMensaje(
+          detalle ||
+          'No se pudo registrar el rostro.'
+        )
+      }
 
       setImagen(null)
 
@@ -719,7 +742,8 @@ function RegistroFacial() {
                 }
                 disabled={
                   procesando ||
-                  maximoAlcanzado
+                  maximoAlcanzado ||
+                  !modelosListos
                 }
               >
 
@@ -729,7 +753,9 @@ function RegistroFacial() {
                   ? 'Máximo alcanzado'
                   : procesando
                     ? 'Procesando rostro...'
-                    : 'Capturar y registrar rostro'}
+                    : !modelosListos
+                      ? 'Preparando el motor...'
+                      : 'Capturar y registrar rostro'}
 
               </button>
 
