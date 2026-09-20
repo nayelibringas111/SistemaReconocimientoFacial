@@ -7,3 +7,4 @@ requests
 numpy
 sqlalchemy
 psycopg2-binary
+pydantic-settings
