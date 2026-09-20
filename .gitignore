@@ -1,0 +1,29 @@
+# Variables de entorno
+.env
+*.env
+
+# Entorno virtual
+venv/
+.venv/
+
+# Python
+__pycache__/
+*.py[cod]
+
+# Node / Frontend
+node_modules/
+dist/
+build/
+.vite/
+
+# Archivos temporales
+*.tmp
+*.log
+
+# IDE
+.vscode/
+.idea/
+
+# Sistema operativo
+.DS_Store
+Thumbs.db
