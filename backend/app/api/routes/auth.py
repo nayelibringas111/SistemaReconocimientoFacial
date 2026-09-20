@@ -1,9 +1,7 @@
-from datetime import datetime, timedelta
-
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from passlib.context import CryptContext
 from pydantic import BaseModel, EmailStr
+import bcrypt
 
 from app.database.connection import get_db
 from app.models.usuario_model import Usuario
@@ -24,12 +22,6 @@ router = APIRouter(
 )
 
 
-pwd_context = CryptContext(
-    schemes=["bcrypt"],
-    deprecated="auto"
-)
-
-
 # ============================================================
 # ESQUEMA PARA REGISTRO
 # ============================================================
@@ -38,6 +30,59 @@ class RegistroUsuarioRequest(BaseModel):
     nombre: str
     email: EmailStr
     password: str
+
+
+# ============================================================
+# FUNCIONES DE CONTRASEÑA
+# ============================================================
+
+def generar_password_hash(password: str) -> str:
+    """
+    Genera un hash bcrypt compatible con los usuarios
+    almacenados actualmente en la base de datos.
+    """
+
+    password_bytes = password.encode("utf-8")
+
+    # bcrypt permite como máximo 72 bytes
+    if len(password_bytes) > 72:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "La contraseña no puede superar "
+                "los 72 bytes."
+            )
+        )
+
+    password_hash = bcrypt.hashpw(
+        password_bytes,
+        bcrypt.gensalt()
+    )
+
+    return password_hash.decode("utf-8")
+
+
+def verificar_password(
+    password: str,
+    password_hash: str
+) -> bool:
+    """
+    Verifica una contraseña contra un hash bcrypt.
+    """
+
+    password_bytes = password.encode("utf-8")
+
+    # bcrypt tiene un límite de 72 bytes
+    if len(password_bytes) > 72:
+        return False
+
+    try:
+        return bcrypt.checkpw(
+            password_bytes,
+            password_hash.encode("utf-8")
+        )
+    except (ValueError, TypeError):
+        return False
 
 
 # ============================================================
@@ -79,7 +124,11 @@ def login(
             )
         )
 
-    if not pwd_context.verify(
+    # --------------------------------------------------------
+    # Verificar contraseña
+    # --------------------------------------------------------
+
+    if not verificar_password(
         datos.password,
         usuario.password_hash
     ):
@@ -90,6 +139,10 @@ def login(
                 "Correo o contraseña incorrectos."
             )
         )
+
+    # --------------------------------------------------------
+    # Crear token JWT
+    # --------------------------------------------------------
 
     token = crear_token_acceso(
         {
@@ -160,6 +213,16 @@ def registrar_usuario(
             )
         )
 
+    if len(password.encode("utf-8")) > 72:
+
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "La contraseña no puede superar "
+                "los 72 bytes."
+            )
+        )
+
     # --------------------------------------------------------
     # Verificar correo existente
     # --------------------------------------------------------
@@ -186,7 +249,7 @@ def registrar_usuario(
     # Crear contraseña segura
     # --------------------------------------------------------
 
-    password_hash = pwd_context.hash(
+    password_hash = generar_password_hash(
         password
     )
 
