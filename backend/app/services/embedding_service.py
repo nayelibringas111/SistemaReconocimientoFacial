@@ -1,11 +1,27 @@
 import cv2
 import numpy as np
+
 from insightface.app import FaceAnalysis
 
 
 class EmbeddingService:
 
     def __init__(self):
+        # El modelo NO se carga al iniciar FastAPI.
+        # Se cargará solamente cuando sea necesario.
+        self.app = None
+
+    def _cargar_modelo(self):
+
+        if self.app is not None:
+            return
+
+        print("")
+        print("==============================================")
+        print(" CARGANDO MODELO DE RECONOCIMIENTO FACIAL")
+        print(" Modelo: buffalo_l")
+        print("==============================================")
+
         self.app = FaceAnalysis(
             name="buffalo_l",
             providers=["CPUExecutionProvider"]
@@ -16,7 +32,17 @@ class EmbeddingService:
             det_size=(640, 640)
         )
 
-    def obtener_embedding(self, imagen: np.ndarray):
+        print("✅ Modelo buffalo_l cargado correctamente.")
+        print("==============================================")
+        print("")
+
+    def obtener_embedding(
+        self,
+        imagen: np.ndarray
+    ):
+
+        self._cargar_modelo()
+
         rostros = self.app.get(imagen)
 
         if not rostros:
@@ -26,10 +52,16 @@ class EmbeddingService:
 
         return rostro.embedding
 
-    def obtener_embedding_desde_archivo(self, ruta: str):
+    def obtener_embedding_desde_archivo(
+        self,
+        ruta: str
+    ):
+
         imagen = cv2.imread(ruta)
 
         if imagen is None:
-            raise ValueError("No se pudo leer la imagen.")
+            raise ValueError(
+                "No se pudo leer la imagen."
+            )
 
         return self.obtener_embedding(imagen)
