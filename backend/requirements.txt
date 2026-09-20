@@ -6,5 +6,5 @@ google-cloud-vision
 requests
 numpy
 sqlalchemy
-psycopg2-binary
+psycopg-binary
 pydantic-settings
