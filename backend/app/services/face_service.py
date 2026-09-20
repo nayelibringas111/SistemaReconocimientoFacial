@@ -1,28 +1,41 @@
-import cv2
-import numpy as np
+import requests
+import base64
+from app.core.config import settings
 
-
-class FaceService:
-
+class GoogleFaceService:
     def __init__(self):
-        self.detector = cv2.CascadeClassifier(
-            cv2.data.haarcascades +
-            "haarcascade_frontalface_default.xml"
-        )
+        self.api_key = settings.GOOGLE_API_KEY
+        self.url = f"https://vision.googleapis.com/v1/images:annotate?key={self.api_key}"
 
-    def detectar_rostros(self, imagen: np.ndarray):
-        gris = cv2.cvtColor(imagen, cv2.COLOR_BGR2GRAY)
+    def detect_face_from_base64(self, base64_image_str: str):
+        # Limpiar prefijo data:image/... si existe
+        if "," in base64_image_str:
+            base64_image_str = base64_image_str.split(",")[1]
 
-        rostros = self.detector.detectMultiScale(
-            gris,
-            scaleFactor=1.1,
-            minNeighbors=5,
-            minSize=(80, 80)
-        )
+        payload = {
+            "requests": [
+                {
+                    "image": {"content": base64_image_str},
+                    "features": [
+                        {"type": "FACE_DETECTION", "maxResults": 5}
+                    ]
+                }
+            ]
+        }
 
-        return rostros
+        response = requests.post(self.url, json=payload)
+        if response.status_code != 200:
+            raise Exception(f"Error en Google Cloud Vision: {response.text}")
 
-    def hay_rostro(self, imagen: np.ndarray) -> bool:
-        rostros = self.detectar_rostros(imagen)
+        data = response.json()
+        annotations = data["responses"][0].get("faceAnnotations", [])
 
-        return len(rostros) > 0
+        results = []
+        for face in annotations:
+            results.append({
+                "confidence": face.get("detectionConfidence"),
+                "joy": face.get("joyLikelihood"),
+                "bounding_poly": face.get("boundingPoly")
+            })
+
+        return results
